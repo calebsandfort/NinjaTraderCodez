@@ -41,9 +41,12 @@ namespace NinjaTrader.NinjaScript.Indicators
         private Series<bool> sell;
         private Series<bool> neutral;
 
-        private Brush buyBrush = Brushes.DeepSkyBlue;
-        private Brush neutralBrush = Brushes.GhostWhite;
-        private Brush sellBrush = Brushes.DeepPink;
+        private Brush upBuyBrush = Brushes.DeepSkyBlue;
+        private Brush downBuyBrush = Brushes.RoyalBlue;
+        private Brush upNeutralBrush = Brushes.GhostWhite;
+        private Brush downNeutralBrush = Brushes.Gray;
+        private Brush upSellBrush = Brushes.MediumOrchid;
+        private Brush downSellBrush = Brushes.DeepPink;
         private Brush transparentBrush = Brushes.Transparent;
 
 		protected override void OnStateChange()
@@ -130,21 +133,21 @@ namespace NinjaTrader.NinjaScript.Indicators
             #region Color Bar
             bool isUpBar = Close[0] > Open[0];
 
-            if (buy[0])
+            if (Buy[0])
             {
-                BarBrushes[0] = isUpBar ? transparentBrush : buyBrush;
-                CandleOutlineBrushes[0] = buyBrush;
+                BarBrushes[0] = isUpBar ? upBuyBrush : downBuyBrush;
+                //CandleOutlineBrushes[0] = upBuyBrush;
             }
-            else if (sell[0])
+            else if (Sell[0])
             {
-                BarBrushes[0] = isUpBar ? transparentBrush : sellBrush;
-                CandleOutlineBrushes[0] = sellBrush;
+                BarBrushes[0] = isUpBar ? upSellBrush : downSellBrush;
+                //CandleOutlineBrushes[0] = upSellBrush;
             }
             else
             {
-                BarBrushes[0] = isUpBar ? transparentBrush : neutralBrush;
-                CandleOutlineBrushes[0] = neutralBrush;
-            } 
+                BarBrushes[0] = isUpBar ? upNeutralBrush : downNeutralBrush;
+                //CandleOutlineBrushes[0] = upNeutralBrush;
+            }
             #endregion
 		}
 

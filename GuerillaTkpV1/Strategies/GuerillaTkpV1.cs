@@ -27,9 +27,12 @@ namespace NinjaTrader.NinjaScript.Strategies
 {
 	public class GuerillaTkpV1 : Strategy
     {
-        private Brush buyBrush = Brushes.DeepSkyBlue;
-        private Brush neutralBrush = Brushes.GhostWhite;
-        private Brush sellBrush = Brushes.DeepPink;
+        private Brush upBuyBrush = Brushes.DeepSkyBlue;
+        private Brush downBuyBrush = Brushes.RoyalBlue;
+        private Brush upNeutralBrush = Brushes.GhostWhite;
+        private Brush downNeutralBrush = Brushes.Gray;
+        private Brush upSellBrush = Brushes.MediumOrchid;
+        private Brush downSellBrush = Brushes.DeepPink;
         private Brush transparentBrush = Brushes.Transparent;
 
         private GuerillaTkp tkp;
@@ -154,18 +157,18 @@ namespace NinjaTrader.NinjaScript.Strategies
 
             if (tkp.Buy[0])
             {
-                BarBrushes[0] = isUpBar ? transparentBrush : buyBrush;
-                CandleOutlineBrushes[0] = buyBrush;
+                BarBrushes[0] = isUpBar ? upBuyBrush : downBuyBrush;
+                //CandleOutlineBrushes[0] = upBuyBrush;
             }
             else if (tkp.Sell[0])
             {
-                BarBrushes[0] = isUpBar ? transparentBrush : sellBrush;
-                CandleOutlineBrushes[0] = sellBrush;
+                BarBrushes[0] = !isUpBar ? upSellBrush : downSellBrush;
+                //CandleOutlineBrushes[0] = upSellBrush;
             }
             else
             {
-                BarBrushes[0] = isUpBar ? transparentBrush : neutralBrush;
-                CandleOutlineBrushes[0] = neutralBrush;
+                BarBrushes[0] = isUpBar ? upNeutralBrush : downNeutralBrush;
+                //CandleOutlineBrushes[0] = upNeutralBrush;
             } 
             #endregion
 
