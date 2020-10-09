@@ -162,7 +162,7 @@ namespace NinjaTrader.NinjaScript.Strategies
             }
             else if (tkp.Sell[0])
             {
-                BarBrushes[0] = !isUpBar ? upSellBrush : downSellBrush;
+                BarBrushes[0] = isUpBar ? upSellBrush : downSellBrush;
                 //CandleOutlineBrushes[0] = upSellBrush;
             }
             else
