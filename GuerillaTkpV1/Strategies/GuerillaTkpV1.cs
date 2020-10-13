@@ -38,21 +38,16 @@ namespace NinjaTrader.NinjaScript.Strategies
         private GuerillaTkp tkp;
         private EMA ema;
 
-        private GuerillaStdDev upperStdDev;
-        private GuerillaStdDev lowerStdDev;
-
-        //private GuerillaTimeBetweenBars tbb;
-        //private EMA tbbEma;
-        //private double minTbb = double.MaxValue;
-        //private double maxTbb = double.MinValue;
-
         private MarketPosition enterDirection = MarketPosition.Flat;
         private double enterPrice = 0;
         private double exitPrice = 0;
         private double dailyPnl = 0;
         private DateTime currentDate = DateTime.MinValue;
         private bool finalizeDailyPnl = false;
-        private RSI rsi;
+
+        private Momentum momentum;
+        private LinRegSlope linRegSlope;
+        private MACD macd;
 
         private DateTime startDate;
 
@@ -83,26 +78,23 @@ namespace NinjaTrader.NinjaScript.Strategies
 				// See the Help Guide for additional information
 				IsInstantiatedOnEachOptimizationIteration	= true;
 
-                //StdDevMultiplier = 2;
-                //ExitOnStdDevCross = false;
                 EmaPeriod = 40;
                 EmaEnterFilter = true;
                 EmaExitFilter = true;
                 FlipOnBarChange = false;
                 FlipOnBarChangeEmaFilter = false;
-                StopLoss = 0;
                 EnterConfirmationBars = 3;
                 ExitConfirmationBars = 2;
-                ProfitTarget = 0;
                 StartDateString = DateTime.Now.ToShortDateString();
                 StartMinutesOffset = 330;
                 EndMinutesOffset = 780;
                 DailyProfitTarget = 2750;
                 DailyLossLimit = 0;
-                TimeBetweenBarsPeriod = 3;
-                MaxTbbThreshold = 0;
                 ExitOnNeutral = true;
                 ExitMidTrade = false;
+                UseEmaHoverFilter = false;
+                EmaHoverFilterThreshold = 0;
+                EmaHoverFilterLookback = 0;
                 IsStrategyAnalyzer = true;
 			}
 			else if (State == State.Configure)
@@ -111,40 +103,20 @@ namespace NinjaTrader.NinjaScript.Strategies
             else if (State == State.DataLoaded)
             {
                 tkp = GuerillaTkp(Close, 25, 5, 14, 5, 50, 50);
-                //AddChartIndicator(guerillaTkp);
 
                 ema = EMA(this.EmaPeriod);
                 AddChartIndicator(ema);
                 ChartIndicators[0].Plots[0].Brush = Brushes.LimeGreen;
                 ChartIndicators[0].Plots[0].Width = 2;
 
-                //tbb = GuerillaTimeBetweenBars();
-                //tbbEma = EMA(tbb, this.TimeBetweenBarsPeriod);
-                //AddChartIndicator(tbbEma);
-                //ChartIndicators[1].IsOverlay = false;
-                //ChartIndicators[1].Panel = 1;
-                //ChartIndicators[1].Plots[0].Brush = Brushes.DarkOrange;
-                //ChartIndicators[1].Plots[0].Width = 2;
+                momentum = Momentum(this.EmaPeriod / 2);
+                linRegSlope = LinRegSlope(this.EmaPeriod / 2);
+                AddChartIndicator(linRegSlope);
+                ChartIndicators[1].Panel = 1;
 
-                //rsi = RSI(14, 7);
-                //AddChartIndicator(rsi);
-                //ChartIndicators[1].Panel = 2;
-
-                //upperStdDev = GuerillaStdDev(ema, this.EmaPeriod, this.StdDevMultiplier);
-                //AddChartIndicator(upperStdDev);
-
-                //lowerStdDev = GuerillaStdDev(ema, this.EmaPeriod, -this.StdDevMultiplier);
-                //AddChartIndicator(lowerStdDev);
-
-                if (this.StopLoss > 0)
-                {
-                    SetStopLoss(CalculationMode.Currency, this.StopLoss);
-                }
-
-                if (this.ProfitTarget > 0)
-                {
-                    SetProfitTarget(CalculationMode.Currency, this.ProfitTarget);
-                }
+                macd = MACD(12, 26, 9);
+                AddChartIndicator(macd);
+                ChartIndicators[2].Panel = 2;
 
                 startDate = DateTime.Parse(this.StartDateString);
             }
@@ -172,55 +144,40 @@ namespace NinjaTrader.NinjaScript.Strategies
             } 
             #endregion
 
-
             if (Time[0].Date != currentDate.Date)
             {
                 currentDate = Time[0].Date;
-                //Print(currentDate.ToShortDateString());
                 finalizeDailyPnl = true;
             }
 
             if (finalizeDailyPnl)
             {
-                //Print(String.Format("Date: {0}, PnL: {1:C}", currentDate.AddDays(-1).ToShortDateString(), dailyPnl));
                 dailyPnl = 0;
                 finalizeDailyPnl = false;
             }
 
             if ((this.IsStrategyAnalyzer && Time[0].Date >= startDate) || (!this.IsStrategyAnalyzer && State == NinjaTrader.NinjaScript.State.Realtime))
             {
-                //bool enterLong = false;
-                //bool enterShort = false;
-                //bool exitLong = false;
-                //bool exitShort = false;
-
-                //Print(tbbEma[0]);
-
                 DateTime now = Time[0];
                 DateTime startTime = now.Date.AddMinutes(this.StartMinutesOffset);
                 DateTime endTime = now.Date.AddMinutes(this.EndMinutesOffset);
 
-                //if(now >= endTime && 
+                //if (Close[0] == 11401.50 && Time[0].Date == new DateTime(2020, 10, 5))
+                //{
+
+                //}
 
                 bool validEnterTime = now.DayOfWeek != DayOfWeek.Sunday
                     && now.DayOfWeek != DayOfWeek.Saturday
                     && (this.StartMinutesOffset == 0 || (this.StartMinutesOffset != 0 && now >= startTime))
                     && (this.EndMinutesOffset == 0 || (this.EndMinutesOffset != 0 && now <= endTime));
 
-                //Print(String.Format("{0}, {1}, {2}", startTime.ToShortTimeString(), now.ToShortTimeString(), endTime.ToShortTimeString()));
-
-                //if (validEnterTime)
-                //{
-                //    minTbb = Math.Min(minTbb, tbbEma[0]);
-                //    maxTbb = Math.Max(maxTbb, tbbEma[0]);
-
-                //    //Print(String.Format("{0}, {1}", minTbb, maxTbb));
-                //}
-
                 bool underDailyProfitTarget = DailyProfitTarget == 0 ? true : dailyPnl < DailyProfitTarget;
                 bool underDailyLossLimit = DailyLossLimit == 0 ? true : dailyPnl > DailyLossLimit;
-                //bool tbbFilter = MaxTbbThreshold == 0 ? true : tbbEma[0] < MaxTbbThreshold;
-                bool tbbFilter = true;
+
+                bool emaHoverFilter = UseEmaHoverFilter ?
+                    EmaHoverFilterLookback >= EmaHoverFilterThreshold && CountIf(() => High[0] > ema[0] && ema[0] > Low[0], EmaHoverFilterLookback) <= EmaHoverFilterThreshold
+                    : true;
 
                 if (this.ExitMidTrade && Position.MarketPosition == MarketPosition.Long && DailyLossLimit != 0
                     && (dailyPnl + Position.GetUnrealizedProfitLoss(PerformanceUnit.Currency)) < DailyLossLimit)
@@ -232,13 +189,13 @@ namespace NinjaTrader.NinjaScript.Strategies
                 {
                     ExitShort();
                 }
-                else if (tbbFilter && underDailyProfitTarget && underDailyLossLimit && validEnterTime && Position.MarketPosition == MarketPosition.Flat
+                else if (underDailyProfitTarget && underDailyLossLimit && validEnterTime && emaHoverFilter && Position.MarketPosition == MarketPosition.Flat
                     && CountIf(() => tkp.Buy[0], EnterConfirmationBars) == EnterConfirmationBars
                     && (!EmaEnterFilter || (EmaEnterFilter && Close[0] > ema[0])))
                 {
                     EnterLong();
                 }
-                else if (tbbFilter && underDailyProfitTarget && underDailyLossLimit && validEnterTime && Position.MarketPosition == MarketPosition.Flat
+                else if (underDailyProfitTarget && underDailyLossLimit && validEnterTime && emaHoverFilter && Position.MarketPosition == MarketPosition.Flat
                     && CountIf(() => tkp.Sell[0], EnterConfirmationBars) == EnterConfirmationBars
                     && (!EmaEnterFilter || (EmaEnterFilter && Close[0] < ema[0])))
                 {
@@ -252,14 +209,6 @@ namespace NinjaTrader.NinjaScript.Strategies
                 {
                     EnterShort();
                 }
-                //else if (ExitOnStdDevCross && Position.MarketPosition == MarketPosition.Long && CrossBelow(Close, upperStdDev, 1))
-                //{
-                //    ExitLong();
-                //}
-                //else if (ExitOnStdDevCross && Position.MarketPosition == MarketPosition.Short && CrossAbove(Close, lowerStdDev, 1))
-                //{
-                //    ExitShort();
-                //}
                 else if (ExitOnNeutral && Position.MarketPosition == MarketPosition.Short
                     && CountIf(() => !tkp.Sell[0], ExitConfirmationBars) == ExitConfirmationBars
                     && (!EmaExitFilter || (EmaExitFilter && Close[0] > ema[0])))
@@ -284,16 +233,11 @@ namespace NinjaTrader.NinjaScript.Strategies
                 {
                     ExitLong();
                 }
-
-                //Print(String.Format("Date: {0}, Buy: {1}, Sell: {2}, Neutral: {3}, EMA: {4}", Time[0].Date, tkp.Buy[0], tkp.Sell[0], tkp.Neutral[0], Close[0] > ema[0]));
             }
-            
 		}
 
         protected override void OnExecutionUpdate(Execution execution, string executionId, double price, int quantity, MarketPosition marketPosition, string orderId, DateTime time)
         {
-            //Print(String.Format("price: {0:C}, quantity: {1}, marketPosition: {2}, Position.MarketPosition: {3}, ", price, quantity, marketPosition, Position.MarketPosition));
-
             if (Position.MarketPosition == MarketPosition.Flat)
             {
                 exitPrice = price;
@@ -311,8 +255,6 @@ namespace NinjaTrader.NinjaScript.Strategies
 
                 dailyPnl += pnl;
 
-                //Print(String.Format("time: {0}, pnl: {1:C}", time, pnl));
-
                 enterDirection = MarketPosition.Flat;
                 enterPrice = 0;
                 exitPrice = 0;
@@ -325,17 +267,6 @@ namespace NinjaTrader.NinjaScript.Strategies
         }
 
         #region Properties
-        //[NinjaScriptProperty]
-        //[Range(double.MinValue, double.MaxValue)]
-        //[Display(Name = "StdDevMultiplier", Order = 1, GroupName = "Parameters")]
-        //public double StdDevMultiplier
-        //{ get; set; }
-
-        //[NinjaScriptProperty]
-        //[Display(Name = "ExitOnStdDevCross", Order = 2, GroupName = "Parameters")]
-        //public bool ExitOnStdDevCross
-        //{ get; set; }
-
         [NinjaScriptProperty]
         [Range(1, int.MaxValue)]
         [Display(Name = "EmaPeriod", Order = 1, GroupName = "Parameters")]
@@ -363,12 +294,6 @@ namespace NinjaTrader.NinjaScript.Strategies
         { get; set; }
 
         [NinjaScriptProperty]
-        [Range(0, double.MaxValue)]
-        [Display(Name = "StopLoss", Order = 7, GroupName = "Parameters")]
-        public double StopLoss
-        { get; set; }
-
-        [NinjaScriptProperty]
         [Range(1, int.MaxValue)]
         [Display(Name = "EnterConfirmationBars", Order = 8, GroupName = "Parameters")]
         public int EnterConfirmationBars
@@ -378,12 +303,6 @@ namespace NinjaTrader.NinjaScript.Strategies
         [Range(1, int.MaxValue)]
         [Display(Name = "ExitConfirmationBars", Order = 9, GroupName = "Parameters")]
         public int ExitConfirmationBars
-        { get; set; }
-
-        [NinjaScriptProperty]
-        [Range(0, double.MaxValue)]
-        [Display(Name = "ProfitTarget", Order = 10, GroupName = "Parameters")]
-        public double ProfitTarget
         { get; set; }
 
         [NinjaScriptProperty]
@@ -416,18 +335,6 @@ namespace NinjaTrader.NinjaScript.Strategies
         { get; set; }
 
         [NinjaScriptProperty]
-        [Range(0, int.MaxValue)]
-        [Display(Name = "TimeBetweenBarsPeriod", Order = 16, GroupName = "Parameters")]
-        public int TimeBetweenBarsPeriod
-        { get; set; }
-
-        [NinjaScriptProperty]
-        [Range(0, double.MaxValue)]
-        [Display(Name = "MaxTbbThreshold", Order = 17, GroupName = "Parameters")]
-        public double MaxTbbThreshold
-        { get; set; }
-
-        [NinjaScriptProperty]
         [Display(Name = "ExitOnNeutral", Order = 18, GroupName = "Parameters")]
         public bool ExitOnNeutral
         { get; set; }
@@ -438,7 +345,24 @@ namespace NinjaTrader.NinjaScript.Strategies
         { get; set; }
 
         [NinjaScriptProperty]
-        [Display(Name = "IsStrategyAnalyzer", Order = 20, GroupName = "Parameters")]
+        [Display(Name = "UseEmaHoverFilter", Order = 20, GroupName = "Parameters")]
+        public bool UseEmaHoverFilter
+        { get; set; }
+
+        [NinjaScriptProperty]
+        [Range(0, int.MaxValue)]
+        [Display(Name = "EmaHoverFilterThreshold", Order = 21, GroupName = "Parameters")]
+        public int EmaHoverFilterThreshold
+        { get; set; }
+
+        [NinjaScriptProperty]
+        [Range(0, int.MaxValue)]
+        [Display(Name = "EmaHoverFilterLookback", Order = 22, GroupName = "Parameters")]
+        public int EmaHoverFilterLookback
+        { get; set; }
+
+        [NinjaScriptProperty]
+        [Display(Name = "IsStrategyAnalyzer", Order = 23, GroupName = "Parameters")]
         public bool IsStrategyAnalyzer
         { get; set; }
         #endregion
