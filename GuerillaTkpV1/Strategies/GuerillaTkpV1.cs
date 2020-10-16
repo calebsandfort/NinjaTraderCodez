@@ -45,10 +45,6 @@ namespace NinjaTrader.NinjaScript.Strategies
         private DateTime currentDate = DateTime.MinValue;
         private bool finalizeDailyPnl = false;
 
-        private Momentum momentum;
-        private LinRegSlope linRegSlope;
-        private MACD macd;
-
         private DateTime startDate;
 
 		protected override void OnStateChange()
@@ -81,8 +77,6 @@ namespace NinjaTrader.NinjaScript.Strategies
                 EmaPeriod = 40;
                 EmaEnterFilter = true;
                 EmaExitFilter = true;
-                FlipOnBarChange = false;
-                FlipOnBarChangeEmaFilter = false;
                 EnterConfirmationBars = 3;
                 ExitConfirmationBars = 2;
                 StartDateString = DateTime.Now.ToShortDateString();
@@ -91,34 +85,39 @@ namespace NinjaTrader.NinjaScript.Strategies
                 DailyProfitTarget = 2750;
                 DailyLossLimit = 0;
                 ExitOnNeutral = true;
-                ExitMidTrade = false;
-                UseEmaHoverFilter = false;
-                EmaHoverFilterThreshold = 0;
-                EmaHoverFilterLookback = 0;
+                StopLoss = 0;
+                ProfitTarget = 0;
                 IsStrategyAnalyzer = true;
+
+                TsiLongLength = 25;
+                TsiShortLength = 5;
+                TsiSignalLength = 14;
+
+                RsiLength = 5;
 			}
 			else if (State == State.Configure)
 			{
 			}
             else if (State == State.DataLoaded)
             {
-                tkp = GuerillaTkp(Close, 25, 5, 14, 5, 50, 50);
+                tkp = GuerillaTkp(Close, TsiLongLength, TsiShortLength, TsiSignalLength, RsiLength, 50, 50);
 
                 ema = EMA(this.EmaPeriod);
                 AddChartIndicator(ema);
                 ChartIndicators[0].Plots[0].Brush = Brushes.LimeGreen;
                 ChartIndicators[0].Plots[0].Width = 2;
 
-                momentum = Momentum(this.EmaPeriod / 2);
-                linRegSlope = LinRegSlope(this.EmaPeriod / 2);
-                AddChartIndicator(linRegSlope);
-                ChartIndicators[1].Panel = 1;
-
-                macd = MACD(12, 26, 9);
-                AddChartIndicator(macd);
-                ChartIndicators[2].Panel = 2;
-
                 startDate = DateTime.Parse(this.StartDateString);
+
+                if (this.StopLoss > 0)
+                {
+                    SetStopLoss(CalculationMode.Currency, this.StopLoss);
+                }
+
+                if (this.ProfitTarget > 0)
+                {
+                    SetProfitTarget(CalculationMode.Currency, this.ProfitTarget);
+                }
             }
 		}
 
@@ -175,37 +174,15 @@ namespace NinjaTrader.NinjaScript.Strategies
                 bool underDailyProfitTarget = DailyProfitTarget == 0 ? true : dailyPnl < DailyProfitTarget;
                 bool underDailyLossLimit = DailyLossLimit == 0 ? true : dailyPnl > DailyLossLimit;
 
-                bool emaHoverFilter = UseEmaHoverFilter ?
-                    EmaHoverFilterLookback >= EmaHoverFilterThreshold && CountIf(() => High[0] > ema[0] && ema[0] > Low[0], EmaHoverFilterLookback) <= EmaHoverFilterThreshold
-                    : true;
-
-                if (this.ExitMidTrade && Position.MarketPosition == MarketPosition.Long && DailyLossLimit != 0
-                    && (dailyPnl + Position.GetUnrealizedProfitLoss(PerformanceUnit.Currency)) < DailyLossLimit)
-                {
-                    ExitLong();
-                }
-                else if (this.ExitMidTrade && Position.MarketPosition == MarketPosition.Short && DailyLossLimit != 0
-                    && (dailyPnl + Position.GetUnrealizedProfitLoss(PerformanceUnit.Currency)) < DailyLossLimit)
-                {
-                    ExitShort();
-                }
-                else if (underDailyProfitTarget && underDailyLossLimit && validEnterTime && emaHoverFilter && Position.MarketPosition == MarketPosition.Flat
+                if (underDailyProfitTarget && underDailyLossLimit && validEnterTime && Position.MarketPosition == MarketPosition.Flat
                     && CountIf(() => tkp.Buy[0], EnterConfirmationBars) == EnterConfirmationBars
                     && (!EmaEnterFilter || (EmaEnterFilter && Close[0] > ema[0])))
                 {
                     EnterLong();
                 }
-                else if (underDailyProfitTarget && underDailyLossLimit && validEnterTime && emaHoverFilter && Position.MarketPosition == MarketPosition.Flat
+                else if (underDailyProfitTarget && underDailyLossLimit && validEnterTime && Position.MarketPosition == MarketPosition.Flat
                     && CountIf(() => tkp.Sell[0], EnterConfirmationBars) == EnterConfirmationBars
                     && (!EmaEnterFilter || (EmaEnterFilter && Close[0] < ema[0])))
-                {
-                    EnterShort();
-                }
-                else if (validEnterTime && FlipOnBarChangeEmaFilter && Position.MarketPosition == MarketPosition.Short && tkp.Buy[0] && (!FlipOnBarChangeEmaFilter || (FlipOnBarChangeEmaFilter && Close[0] > ema[0])))
-                {
-                    EnterLong();
-                }
-                else if (validEnterTime && FlipOnBarChange && Position.MarketPosition == MarketPosition.Long && tkp.Sell[0] && (!FlipOnBarChangeEmaFilter || (FlipOnBarChangeEmaFilter && Close[0] < ema[0])))
                 {
                     EnterShort();
                 }
@@ -284,16 +261,6 @@ namespace NinjaTrader.NinjaScript.Strategies
         { get; set; }
 
         [NinjaScriptProperty]
-        [Display(Name = "FlipOnBarChange", Order = 4, GroupName = "Parameters")]
-        public bool FlipOnBarChange
-        { get; set; }
-
-        [NinjaScriptProperty]
-        [Display(Name = "FlipOnBarChangeEmaFilter", Order = 6, GroupName = "Parameters")]
-        public bool FlipOnBarChangeEmaFilter
-        { get; set; }
-
-        [NinjaScriptProperty]
         [Range(1, int.MaxValue)]
         [Display(Name = "EnterConfirmationBars", Order = 8, GroupName = "Parameters")]
         public int EnterConfirmationBars
@@ -340,31 +307,49 @@ namespace NinjaTrader.NinjaScript.Strategies
         { get; set; }
 
         [NinjaScriptProperty]
-        [Display(Name = "ExitMidTrade", Order = 19, GroupName = "Parameters")]
-        public bool ExitMidTrade
+        [Range(0, double.MaxValue)]
+        [Display(Name = "StopLoss", Order = 20, GroupName = "Parameters")]
+        public double StopLoss
         { get; set; }
 
         [NinjaScriptProperty]
-        [Display(Name = "UseEmaHoverFilter", Order = 20, GroupName = "Parameters")]
-        public bool UseEmaHoverFilter
-        { get; set; }
-
-        [NinjaScriptProperty]
-        [Range(0, int.MaxValue)]
-        [Display(Name = "EmaHoverFilterThreshold", Order = 21, GroupName = "Parameters")]
-        public int EmaHoverFilterThreshold
-        { get; set; }
-
-        [NinjaScriptProperty]
-        [Range(0, int.MaxValue)]
-        [Display(Name = "EmaHoverFilterLookback", Order = 22, GroupName = "Parameters")]
-        public int EmaHoverFilterLookback
+        [Range(0, double.MaxValue)]
+        [Display(Name = "ProfitTarget", Order = 21, GroupName = "Parameters")]
+        public double ProfitTarget
         { get; set; }
 
         [NinjaScriptProperty]
         [Display(Name = "IsStrategyAnalyzer", Order = 23, GroupName = "Parameters")]
         public bool IsStrategyAnalyzer
         { get; set; }
+
+        #region TSI Parameters
+        [NinjaScriptProperty]
+        [Range(1, int.MaxValue)]
+        [Display(Name = "TsiLongLength", Order = 24, GroupName = "Parameters")]
+        public int TsiLongLength
+        { get; set; }
+
+        [NinjaScriptProperty]
+        [Range(1, int.MaxValue)]
+        [Display(Name = "TsiShortLength", Order = 25, GroupName = "Parameters")]
+        public int TsiShortLength
+        { get; set; }
+
+        [NinjaScriptProperty]
+        [Range(1, int.MaxValue)]
+        [Display(Name = "TsiSignalLength", Order = 26, GroupName = "Parameters")]
+        public int TsiSignalLength
+        { get; set; }
+        #endregion
+
+        #region RSI Parameters
+        [NinjaScriptProperty]
+        [Range(1, int.MaxValue)]
+        [Display(Name = "RsiLength", Order = 27, GroupName = "Parameters")]
+        public int RsiLength
+        { get; set; }
+        #endregion
         #endregion
 	}
 }
