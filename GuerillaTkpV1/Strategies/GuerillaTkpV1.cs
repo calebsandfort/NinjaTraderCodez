@@ -46,6 +46,7 @@ namespace NinjaTrader.NinjaScript.Strategies
         private bool finalizeDailyPnl = false;
 
         private DateTime startDate;
+        private GuerillaPositionTracker positionTracker;
 
 		protected override void OnStateChange()
 		{
@@ -74,16 +75,16 @@ namespace NinjaTrader.NinjaScript.Strategies
 				// See the Help Guide for additional information
 				IsInstantiatedOnEachOptimizationIteration	= true;
 
-                EmaPeriod = 40;
-                EmaEnterFilter = true;
+                EmaPeriod = 20;
+                EmaEnterFilter = false;
                 EmaExitFilter = true;
-                EnterConfirmationBars = 3;
-                ExitConfirmationBars = 2;
+                EnterConfirmationBars = 1;
+                ExitConfirmationBars = 1;
                 StartDateString = DateTime.Now.ToShortDateString();
                 StartMinutesOffset = 330;
                 EndMinutesOffset = 780;
-                DailyProfitTarget = 2750;
-                DailyLossLimit = 0;
+                DailyProfitTarget = 5500;
+                DailyLossLimit = -4750;
                 ExitOnNeutral = true;
                 StopLoss = 0;
                 ProfitTarget = 0;
@@ -118,6 +119,10 @@ namespace NinjaTrader.NinjaScript.Strategies
                 {
                     SetProfitTarget(CalculationMode.Currency, this.ProfitTarget);
                 }
+
+                positionTracker = new GuerillaPositionTracker();
+                positionTracker.Positions.Add("position1", new GuerillaPosition(Bars.Instrument.MasterInstrument.PointValue));
+                positionTracker.Positions.Add("position2", new GuerillaPosition(Bars.Instrument.MasterInstrument.PointValue));
             }
 		}
 
@@ -153,18 +158,19 @@ namespace NinjaTrader.NinjaScript.Strategies
             {
                 dailyPnl = 0;
                 finalizeDailyPnl = false;
+
+                foreach (String k in positionTracker.Positions.Keys)
+                {
+                    positionTracker.Positions[k].Reset();
+                }
             }
 
             if ((this.IsStrategyAnalyzer && Time[0].Date >= startDate) || (!this.IsStrategyAnalyzer && State == NinjaTrader.NinjaScript.State.Realtime))
             {
+                #region Entry
                 DateTime now = Time[0];
                 DateTime startTime = now.Date.AddMinutes(this.StartMinutesOffset);
                 DateTime endTime = now.Date.AddMinutes(this.EndMinutesOffset);
-
-                //if (Close[0] == 11401.50 && Time[0].Date == new DateTime(2020, 10, 5))
-                //{
-
-                //}
 
                 bool validEnterTime = now.DayOfWeek != DayOfWeek.Sunday
                     && now.DayOfWeek != DayOfWeek.Saturday
@@ -174,73 +180,135 @@ namespace NinjaTrader.NinjaScript.Strategies
                 bool underDailyProfitTarget = DailyProfitTarget == 0 ? true : dailyPnl < DailyProfitTarget;
                 bool underDailyLossLimit = DailyLossLimit == 0 ? true : dailyPnl > DailyLossLimit;
 
-                if (underDailyProfitTarget && underDailyLossLimit && validEnterTime && Position.MarketPosition == MarketPosition.Flat
+                if (underDailyProfitTarget && underDailyLossLimit && validEnterTime && positionTracker.IsFlat
                     && CountIf(() => tkp.Buy[0], EnterConfirmationBars) == EnterConfirmationBars
                     && (!EmaEnterFilter || (EmaEnterFilter && Close[0] > ema[0])))
                 {
-                    EnterLong();
+                    EnterLong(1, "position1");
+                    EnterLong(1, "position2");
+                    return;
                 }
-                else if (underDailyProfitTarget && underDailyLossLimit && validEnterTime && Position.MarketPosition == MarketPosition.Flat
+                else if (underDailyProfitTarget && underDailyLossLimit && validEnterTime && positionTracker.IsFlat
                     && CountIf(() => tkp.Sell[0], EnterConfirmationBars) == EnterConfirmationBars
                     && (!EmaEnterFilter || (EmaEnterFilter && Close[0] < ema[0])))
                 {
-                    EnterShort();
-                }
-                else if (ExitOnNeutral && Position.MarketPosition == MarketPosition.Short
+                    EnterShort(1, "position1");
+                    EnterShort(1, "position2");
+                    return;
+                } 
+                #endregion
+
+                #region Exit
+                String positionKey = "";
+
+                #region Position1
+                positionKey = "position1";
+
+                if (ExitOnNeutral && positionTracker.Positions[positionKey].EnterDirection == MarketPosition.Short
                     && CountIf(() => !tkp.Sell[0], ExitConfirmationBars) == ExitConfirmationBars
                     && (!EmaExitFilter || (EmaExitFilter && Close[0] > ema[0])))
                 {
-                    ExitShort();
+                    ExitShort(positionKey);
                 }
-                else if (ExitOnNeutral && Position.MarketPosition == MarketPosition.Long
+                else if (ExitOnNeutral && positionTracker.Positions[positionKey].EnterDirection == MarketPosition.Long
                     && CountIf(() => !tkp.Buy[0], ExitConfirmationBars) == ExitConfirmationBars
                     && (!EmaExitFilter || (EmaExitFilter && Close[0] < ema[0])))
                 {
-                    ExitLong();
+                    ExitLong(positionKey);
                 }
-                else if (!ExitOnNeutral && Position.MarketPosition == MarketPosition.Short
+                else if (!ExitOnNeutral && positionTracker.Positions[positionKey].EnterDirection == MarketPosition.Short
                     && CountIf(() => tkp.Buy[0], ExitConfirmationBars) == ExitConfirmationBars
                     && (!EmaExitFilter || (EmaExitFilter && Close[0] > ema[0])))
                 {
-                    ExitShort();
+                    ExitShort(positionKey);
                 }
-                else if (!ExitOnNeutral && Position.MarketPosition == MarketPosition.Long
+                else if (!ExitOnNeutral && positionTracker.Positions[positionKey].EnterDirection == MarketPosition.Long
                     && CountIf(() => tkp.Sell[0], ExitConfirmationBars) == ExitConfirmationBars
                     && (!EmaExitFilter || (EmaExitFilter && Close[0] < ema[0])))
                 {
-                    ExitLong();
+                    ExitLong(positionKey);
                 }
+                #endregion
+
+                #region Position2
+                positionKey = "position2";
+
+                if (ExitOnNeutral && positionTracker.Positions[positionKey].EnterDirection == MarketPosition.Short
+                    && CountIf(() => !tkp.Sell[0], ExitConfirmationBars) == ExitConfirmationBars
+                    && (!EmaExitFilter || (EmaExitFilter && Close[0] > ema[0])))
+                {
+                    ExitShort(positionKey);
+                }
+                else if (ExitOnNeutral && positionTracker.Positions[positionKey].EnterDirection == MarketPosition.Long
+                    && CountIf(() => !tkp.Buy[0], ExitConfirmationBars) == ExitConfirmationBars
+                    && (!EmaExitFilter || (EmaExitFilter && Close[0] < ema[0])))
+                {
+                    ExitLong(positionKey);
+                }
+                else if (!ExitOnNeutral && positionTracker.Positions[positionKey].EnterDirection == MarketPosition.Short
+                    && CountIf(() => tkp.Buy[0], ExitConfirmationBars) == ExitConfirmationBars
+                    && (!EmaExitFilter || (EmaExitFilter && Close[0] > ema[0])))
+                {
+                    ExitShort(positionKey);
+                }
+                else if (!ExitOnNeutral && positionTracker.Positions[positionKey].EnterDirection == MarketPosition.Long
+                    && CountIf(() => tkp.Sell[0], ExitConfirmationBars) == ExitConfirmationBars
+                    && (!EmaExitFilter || (EmaExitFilter && Close[0] < ema[0])))
+                {
+                    ExitLong(positionKey);
+                }
+                #endregion 
+                #endregion
+
+                
             }
 		}
 
         protected override void OnExecutionUpdate(Execution execution, string executionId, double price, int quantity, MarketPosition marketPosition, string orderId, DateTime time)
         {
-            if (Position.MarketPosition == MarketPosition.Flat)
+            String key = "";
+
+            //Flat
+            if (execution.Order.Name == "Exit on session close")
             {
-                exitPrice = price;
+                key = String.Empty;
 
-                double pnl = 0;
-
-                if (enterDirection == MarketPosition.Long)
+                foreach (String k in positionTracker.Positions.Keys)
                 {
-                    pnl = (exitPrice - enterPrice) * Bars.Instrument.MasterInstrument.PointValue;
-                }
-                else
-                {
-                    pnl = (enterPrice - exitPrice) * Bars.Instrument.MasterInstrument.PointValue;
+                    if (positionTracker.Positions[k].EnterDirection != MarketPosition.Flat)
+                    {
+                        key = k;
+                        break;
+                    }
                 }
 
-                dailyPnl += pnl;
+                if (!String.IsNullOrEmpty(key))
+                {
+                    positionTracker.Positions[key].ExitPrice = price;
 
-                enterDirection = MarketPosition.Flat;
-                enterPrice = 0;
-                exitPrice = 0;
+                    dailyPnl += positionTracker.Positions[key].Pnl;
+
+                    positionTracker.Positions[key].Reset();
+                }
             }
-            else
+            else if (positionTracker.Positions.ContainsKey(execution.Order.FromEntrySignal))
             {
-                enterDirection = marketPosition;
-                enterPrice = price;
+                key = execution.Order.FromEntrySignal;
+
+                positionTracker.Positions[key].ExitPrice = price;
+
+                dailyPnl += positionTracker.Positions[key].Pnl;
+
+                positionTracker.Positions[key].Reset();
             }
+            //Entry
+            else if (positionTracker.Positions.ContainsKey(execution.Order.Name))
+            {
+                key = execution.Order.Name;
+
+                positionTracker.Positions[key].EnterDirection = marketPosition;
+                positionTracker.Positions[key].EnterPrice = price;
+            }            
         }
 
         #region Properties
@@ -350,6 +418,81 @@ namespace NinjaTrader.NinjaScript.Strategies
         public int RsiLength
         { get; set; }
         #endregion
+        #endregion
+
+        #region GuerillaPositionTracker
+        private class GuerillaPositionTracker
+        {
+            public Dictionary<string, GuerillaPosition> Positions { get; set; }
+
+            public List<GuerillaPosition> List
+            {
+                get
+                {
+                    return Positions.Values.ToList();
+                }
+            }
+
+            public bool IsFlat
+            {
+                get
+                {
+                    return this.List.All(x => x.EnterDirection == MarketPosition.Flat);
+                }
+            }
+
+            public GuerillaPositionTracker()
+            {
+                this.Positions = new Dictionary<string, GuerillaPosition>();
+            }
+        }
+        #endregion
+
+        #region GuerillaPosition
+        private class GuerillaPosition
+        {
+            public MarketPosition EnterDirection { get; set; }
+            public Double EnterPrice { get; set; }
+            public Double ExitPrice { get; set; }
+            public Double PointValue { get; set; }
+
+            public Double Pnl
+            {
+                get
+                {
+                    if (EnterDirection == MarketPosition.Long)
+                    {
+                        return (ExitPrice - EnterPrice) * PointValue;
+                    }
+                    else
+                    {
+                        return (EnterPrice - ExitPrice) * PointValue;
+                    }
+                }
+            }
+
+            public GuerillaPosition()
+            {
+                this.EnterDirection = MarketPosition.Flat;
+                this.EnterPrice = 0;
+                this.ExitPrice = 0;
+            }
+
+            public GuerillaPosition(Double pointValue)
+            {
+                this.PointValue = pointValue;
+                this.EnterDirection = MarketPosition.Flat;
+                this.EnterPrice = 0;
+                this.ExitPrice = 0;
+            }
+
+            public void Reset()
+            {
+                this.EnterDirection = MarketPosition.Flat;
+                this.EnterPrice = 0;
+                this.ExitPrice = 0;
+            }
+        } 
         #endregion
 	}
 }
