@@ -47,6 +47,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         private DateTime startDate;
         private GuerillaPositionTracker positionTracker;
+        private GuerillaMidPoint midPoint;
 
 		protected override void OnStateChange()
 		{
@@ -90,11 +91,20 @@ namespace NinjaTrader.NinjaScript.Strategies
                 ProfitTarget = 0;
                 IsStrategyAnalyzer = true;
 
+                //Fast: 25, 5, 14, 5
+                //Slow: 25, 13, 13, 14
+
                 TsiLongLength = 25;
                 TsiShortLength = 5;
                 TsiSignalLength = 14;
 
                 RsiLength = 5;
+
+                HalfExitStrategy = GuerillaExitStrategies.None;
+                HalfExitConfirmationBars = 1;
+                SwingPointBars = 1;
+                UseHalfExitOnSecondHalf = false;
+                WaitForSwingLength = false;
 			}
 			else if (State == State.Configure)
 			{
@@ -107,6 +117,8 @@ namespace NinjaTrader.NinjaScript.Strategies
                 AddChartIndicator(ema);
                 ChartIndicators[0].Plots[0].Brush = Brushes.LimeGreen;
                 ChartIndicators[0].Plots[0].Width = 2;
+
+                midPoint = GuerillaMidPoint();
 
                 startDate = DateTime.Parse(this.StartDateString);
 
@@ -123,6 +135,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 positionTracker = new GuerillaPositionTracker();
                 positionTracker.Positions.Add("position1", new GuerillaPosition(Bars.Instrument.MasterInstrument.PointValue));
                 positionTracker.Positions.Add("position2", new GuerillaPosition(Bars.Instrument.MasterInstrument.PointValue));
+
             }
 		}
 
@@ -185,7 +198,10 @@ namespace NinjaTrader.NinjaScript.Strategies
                     && (!EmaEnterFilter || (EmaEnterFilter && Close[0] > ema[0])))
                 {
                     EnterLong(1, "position1");
+                    positionTracker.Positions["position1"].EnterBar = CurrentBar;
+
                     EnterLong(1, "position2");
+                    positionTracker.Positions["position2"].EnterBar = CurrentBar;
                     return;
                 }
                 else if (underDailyProfitTarget && underDailyLossLimit && validEnterTime && positionTracker.IsFlat
@@ -193,18 +209,135 @@ namespace NinjaTrader.NinjaScript.Strategies
                     && (!EmaEnterFilter || (EmaEnterFilter && Close[0] < ema[0])))
                 {
                     EnterShort(1, "position1");
+                    positionTracker.Positions["position1"].EnterBar = CurrentBar;
+
                     EnterShort(1, "position2");
+                    positionTracker.Positions["position2"].EnterBar = CurrentBar;
                     return;
                 } 
                 #endregion
 
                 #region Exit
                 String positionKey = "";
+                int barsSinceEnter = 0;
+                bool swingBarsPassed = false;
 
                 #region Position1
                 positionKey = "position1";
+                barsSinceEnter = CurrentBar - positionTracker.Positions[positionKey].EnterBar;
+                swingBarsPassed = barsSinceEnter > SwingPointBars;
 
-                if (ExitOnNeutral && positionTracker.Positions[positionKey].EnterDirection == MarketPosition.Short
+                if (positionTracker.Positions[positionKey].EnterDirection == MarketPosition.Short
+                    && (
+                        (
+                            HalfExitStrategy == GuerillaExitStrategies.Opposite &&
+                            CountIf(() => tkp.Buy[0], HalfExitConfirmationBars) == HalfExitConfirmationBars
+                        )
+                        ||
+                        (
+                            HalfExitStrategy == GuerillaExitStrategies.Neutral &&
+                            CountIf(() => !tkp.Sell[0], HalfExitConfirmationBars) == HalfExitConfirmationBars
+                        )
+                    ))
+                {
+                    ExitShort(positionKey);
+                }
+                else if (positionTracker.Positions[positionKey].EnterDirection == MarketPosition.Long
+                    && (
+                        (
+                            HalfExitStrategy == GuerillaExitStrategies.Opposite &&
+                            CountIf(() => tkp.Sell[0], HalfExitConfirmationBars) == HalfExitConfirmationBars
+                        )
+                        ||
+                        (
+                            HalfExitStrategy == GuerillaExitStrategies.Neutral &&
+                            CountIf(() => !tkp.Buy[0], HalfExitConfirmationBars) == HalfExitConfirmationBars
+                        )
+                    ))
+                {
+                    ExitLong(positionKey);
+                }
+                else if ((!WaitForSwingLength || (WaitForSwingLength && swingBarsPassed)) &&
+                    positionTracker.Positions[positionKey].EnterDirection == MarketPosition.Short
+                    && HalfExitStrategy == GuerillaExitStrategies.SwingPoint)
+                {
+                    int middle = SwingPointBars / 2;
+                    List<Double> otherValues = new List<double>();
+
+                    for (int i = 0; i < SwingPointBars; i++)
+                    {
+                        if (i != middle)
+                        {
+                            otherValues.Add(Low[i]);
+                        }
+                    }
+
+                    if (Low[middle] < otherValues.Min())
+                    {
+                        ExitShort(positionKey);
+                    }
+                }
+                else if ((!WaitForSwingLength || (WaitForSwingLength && swingBarsPassed)) &&
+                    positionTracker.Positions[positionKey].EnterDirection == MarketPosition.Long
+                    && HalfExitStrategy == GuerillaExitStrategies.SwingPoint)
+                {
+                    int middle = SwingPointBars / 2;
+                    List<Double> otherValues = new List<double>();
+
+                    for (int i = 0; i < SwingPointBars; i++)
+                    {
+                        if (i != middle)
+                        {
+                            otherValues.Add(High[i]);
+                        }
+                    }
+
+                    if (High[middle] > otherValues.Max())
+                    {
+                        ExitLong(positionKey);
+                    }
+                }
+                else if ((!WaitForSwingLength || (WaitForSwingLength && swingBarsPassed)) &&
+                    positionTracker.Positions[positionKey].EnterDirection == MarketPosition.Short
+                    && HalfExitStrategy == GuerillaExitStrategies.SwingMidPoint)
+                {
+                    int middle = SwingPointBars / 2;
+                    List<Double> otherValues = new List<double>();
+
+                    for (int i = 0; i < SwingPointBars; i++)
+                    {
+                        if (i != middle)
+                        {
+                            otherValues.Add(midPoint[i]);
+                        }
+                    }
+
+                    if (midPoint[middle] < otherValues.Min())
+                    {
+                        ExitShort(positionKey);
+                    }
+                }
+                else if ((!WaitForSwingLength || (WaitForSwingLength && swingBarsPassed)) &&
+                    positionTracker.Positions[positionKey].EnterDirection == MarketPosition.Long
+                    && HalfExitStrategy == GuerillaExitStrategies.SwingMidPoint)
+                {
+                    int middle = SwingPointBars / 2;
+                    List<Double> otherValues = new List<double>();
+
+                    for (int i = 0; i < SwingPointBars; i++)
+                    {
+                        if (i != middle)
+                        {
+                            otherValues.Add(midPoint[i]);
+                        }
+                    }
+
+                    if (midPoint[middle] > otherValues.Max())
+                    {
+                        ExitLong(positionKey);
+                    }
+                }
+                else if (ExitOnNeutral && positionTracker.Positions[positionKey].EnterDirection == MarketPosition.Short
                     && CountIf(() => !tkp.Sell[0], ExitConfirmationBars) == ExitConfirmationBars
                     && (!EmaExitFilter || (EmaExitFilter && Close[0] > ema[0])))
                 {
@@ -232,8 +365,120 @@ namespace NinjaTrader.NinjaScript.Strategies
 
                 #region Position2
                 positionKey = "position2";
+                barsSinceEnter = CurrentBar - positionTracker.Positions[positionKey].EnterBar;
+                swingBarsPassed = barsSinceEnter > SwingPointBars;
 
-                if (ExitOnNeutral && positionTracker.Positions[positionKey].EnterDirection == MarketPosition.Short
+                if (UseHalfExitOnSecondHalf && positionTracker.Positions[positionKey].EnterDirection == MarketPosition.Short
+                    && (
+                        (
+                            HalfExitStrategy == GuerillaExitStrategies.Opposite &&
+                            CountIf(() => tkp.Buy[0], HalfExitConfirmationBars) == HalfExitConfirmationBars
+                        )
+                        ||
+                        (
+                            HalfExitStrategy == GuerillaExitStrategies.Neutral &&
+                            CountIf(() => !tkp.Sell[0], HalfExitConfirmationBars) == HalfExitConfirmationBars
+                        )
+                    ))
+                {
+                    ExitShort(positionKey);
+                }
+                else if (UseHalfExitOnSecondHalf && positionTracker.Positions[positionKey].EnterDirection == MarketPosition.Long
+                    && (
+                        (
+                            HalfExitStrategy == GuerillaExitStrategies.Opposite &&
+                            CountIf(() => tkp.Sell[0], HalfExitConfirmationBars) == HalfExitConfirmationBars
+                        )
+                        ||
+                        (
+                            HalfExitStrategy == GuerillaExitStrategies.Neutral &&
+                            CountIf(() => !tkp.Buy[0], HalfExitConfirmationBars) == HalfExitConfirmationBars
+                        )
+                    ))
+                {
+                    ExitLong(positionKey);
+                }
+                else if ((!WaitForSwingLength || (WaitForSwingLength && swingBarsPassed)) &&
+                    UseHalfExitOnSecondHalf && positionTracker.Positions[positionKey].EnterDirection == MarketPosition.Short
+                    && HalfExitStrategy == GuerillaExitStrategies.SwingPoint)
+                {
+                    int middle = SwingPointBars / 2;
+                    List<Double> otherValues = new List<double>();
+
+                    for (int i = 0; i < SwingPointBars; i++)
+                    {
+                        if (i != middle)
+                        {
+                            otherValues.Add(Low[i]);
+                        }
+                    }
+
+                    if (Low[middle] < otherValues.Min())
+                    {
+                        ExitShort(positionKey);
+                    }
+                }
+                else if ((!WaitForSwingLength || (WaitForSwingLength && swingBarsPassed)) &&
+                    UseHalfExitOnSecondHalf && positionTracker.Positions[positionKey].EnterDirection == MarketPosition.Long
+                    && HalfExitStrategy == GuerillaExitStrategies.SwingPoint)
+                {
+                    int middle = SwingPointBars / 2;
+                    List<Double> otherValues = new List<double>();
+
+                    for (int i = 0; i < SwingPointBars; i++)
+                    {
+                        if (i != middle)
+                        {
+                            otherValues.Add(High[i]);
+                        }
+                    }
+
+                    if (High[middle] > otherValues.Max())
+                    {
+                        ExitLong(positionKey);
+                    }
+                }
+                else if ((!WaitForSwingLength || (WaitForSwingLength && swingBarsPassed)) &&
+                    UseHalfExitOnSecondHalf && positionTracker.Positions[positionKey].EnterDirection == MarketPosition.Short
+                    && HalfExitStrategy == GuerillaExitStrategies.SwingMidPoint)
+                {
+                    int middle = SwingPointBars / 2;
+                    List<Double> otherValues = new List<double>();
+
+                    for (int i = 0; i < SwingPointBars; i++)
+                    {
+                        if (i != middle)
+                        {
+                            otherValues.Add(midPoint[i]);
+                        }
+                    }
+
+                    if (midPoint[middle] < otherValues.Min())
+                    {
+                        ExitShort(positionKey);
+                    }
+                }
+                else if ((!WaitForSwingLength || (WaitForSwingLength && swingBarsPassed)) &&
+                    UseHalfExitOnSecondHalf && positionTracker.Positions[positionKey].EnterDirection == MarketPosition.Long
+                    && HalfExitStrategy == GuerillaExitStrategies.SwingMidPoint)
+                {
+                    int middle = SwingPointBars / 2;
+                    List<Double> otherValues = new List<double>();
+
+                    for (int i = 0; i < SwingPointBars; i++)
+                    {
+                        if (i != middle)
+                        {
+                            otherValues.Add(midPoint[i]);
+                        }
+                    }
+
+                    if (midPoint[middle] > otherValues.Max())
+                    {
+                        ExitLong(positionKey);
+                    }
+                }
+                else if (ExitOnNeutral && positionTracker.Positions[positionKey].EnterDirection == MarketPosition.Short
                     && CountIf(() => !tkp.Sell[0], ExitConfirmationBars) == ExitConfirmationBars
                     && (!EmaExitFilter || (EmaExitFilter && Close[0] > ema[0])))
                 {
@@ -358,15 +603,15 @@ namespace NinjaTrader.NinjaScript.Strategies
         { get; set; }
 
         [NinjaScriptProperty]
-        [Range(0, double.MaxValue)]
+        [Range(0, int.MaxValue)]
         [Display(Name = "DailyProfitTarget", Order = 14, GroupName = "Parameters")]
-        public double DailyProfitTarget
+        public int DailyProfitTarget
         { get; set; }
 
         [NinjaScriptProperty]
-        [Range(double.MinValue, 0)]
+        [Range(int.MinValue, 0)]
         [Display(Name = "DailyLossLimit", Order = 15, GroupName = "Parameters")]
-        public double DailyLossLimit
+        public int DailyLossLimit
         { get; set; }
 
         [NinjaScriptProperty]
@@ -375,15 +620,15 @@ namespace NinjaTrader.NinjaScript.Strategies
         { get; set; }
 
         [NinjaScriptProperty]
-        [Range(0, double.MaxValue)]
+        [Range(0, int.MaxValue)]
         [Display(Name = "StopLoss", Order = 20, GroupName = "Parameters")]
-        public double StopLoss
+        public int StopLoss
         { get; set; }
 
         [NinjaScriptProperty]
-        [Range(0, double.MaxValue)]
+        [Range(0, int.MaxValue)]
         [Display(Name = "ProfitTarget", Order = 21, GroupName = "Parameters")]
-        public double ProfitTarget
+        public int ProfitTarget
         { get; set; }
 
         [NinjaScriptProperty]
@@ -416,6 +661,35 @@ namespace NinjaTrader.NinjaScript.Strategies
         [Range(1, int.MaxValue)]
         [Display(Name = "RsiLength", Order = 27, GroupName = "Parameters")]
         public int RsiLength
+        { get; set; }
+        #endregion
+
+        #region Half Exit Parameters
+        [NinjaScriptProperty]
+        [Display(Name = "HalfExitStrategyInt", Order = 28, GroupName = "Parameters")]
+        public GuerillaExitStrategies HalfExitStrategy
+        { get; set; }
+
+        [NinjaScriptProperty]
+        [Range(1, int.MaxValue)]
+        [Display(Name = "HalfExitConfirmationBars", Order = 29, GroupName = "Parameters")]
+        public int HalfExitConfirmationBars
+        { get; set; }
+
+        [NinjaScriptProperty]
+        [Range(1, int.MaxValue)]
+        [Display(Name = "SwingPointBars", Order = 30, GroupName = "Parameters")]
+        public int SwingPointBars
+        { get; set; }
+
+        [NinjaScriptProperty]
+        [Display(Name = "UseHalfExitOnSecondHalf", Order = 31, GroupName = "Parameters")]
+        public bool UseHalfExitOnSecondHalf
+        { get; set; }
+
+        [NinjaScriptProperty]
+        [Display(Name = "WaitForSwingLength", Order = 32, GroupName = "Parameters")]
+        public bool WaitForSwingLength
         { get; set; }
         #endregion
         #endregion
@@ -453,6 +727,7 @@ namespace NinjaTrader.NinjaScript.Strategies
         {
             public MarketPosition EnterDirection { get; set; }
             public Double EnterPrice { get; set; }
+            public int EnterBar { get; set; }
             public Double ExitPrice { get; set; }
             public Double PointValue { get; set; }
 
@@ -475,6 +750,7 @@ namespace NinjaTrader.NinjaScript.Strategies
             {
                 this.EnterDirection = MarketPosition.Flat;
                 this.EnterPrice = 0;
+                this.EnterBar = 0;
                 this.ExitPrice = 0;
             }
 
@@ -483,6 +759,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 this.PointValue = pointValue;
                 this.EnterDirection = MarketPosition.Flat;
                 this.EnterPrice = 0;
+                this.EnterBar = 0;
                 this.ExitPrice = 0;
             }
 
@@ -490,9 +767,21 @@ namespace NinjaTrader.NinjaScript.Strategies
             {
                 this.EnterDirection = MarketPosition.Flat;
                 this.EnterPrice = 0;
+                this.EnterBar = 0;
                 this.ExitPrice = 0;
             }
         } 
+        #endregion
+
+        #region GuerillaExitStrategies
+        public enum GuerillaExitStrategies
+        {
+            None = 0,
+            Opposite,
+            Neutral,
+            SwingPoint,
+            SwingMidPoint
+        }
         #endregion
 	}
 }
